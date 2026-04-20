@@ -1,39 +1,54 @@
 # bot-finanzas-n8n
-# 🤖 Bot de Finanzas Personales con n8n + IA
+# 🤖 Bot de Finanzas Personales con IA + n8n
 
-Este proyecto consiste en un bot de Telegram que permite registrar gastos e ingresos en lenguaje natural, almacenarlos automáticamente y consultarlos en tiempo real.
-
----
-
-## 🚀 Funcionalidades
-
-- Registro de gastos e ingresos mediante mensajes
-- Interpretación de lenguaje natural con IA
-- Clasificación automática (gasto / ingreso)
-- Soporte para múltiples monedas (ARS / USD)
-- Conversión automática de USD a ARS mediante API
-- Almacenamiento en Google Sheets
-- Consultas en tiempo real (ej: "cuánto gasté hoy")
+Automatización para registrar, organizar y consultar gastos e ingresos usando lenguaje natural.
 
 ---
 
-## 🧠 Tecnologías utilizadas
+## 🎯 Problema
 
-- n8n (workflow automation)
-- OpenAI / AI Agent
-- Telegram Bot API
-- Google Sheets API
-- JavaScript (nodos de procesamiento)
+Muchas personas y pequeños negocios no llevan un control claro de sus finanzas.
+
+- registrar gastos manualmente es incómodo
+- se pierde información o se anota mal
+- no hay una visión clara de en qué se va el dinero
+- las herramientas existentes suelen ser poco prácticas o demasiado complejas
 
 ---
 
-## 🔄 Flujo de trabajo
+## 💡 Solución
 
-1. El usuario envía un mensaje por Telegram
-2. El bot interpreta la intención (chat / registro / consulta)
-3. Se procesa la información (normalización y validación)
-4. Se almacena en Google Sheets
-5. Se responde al usuario
+Desarrollé un bot de Telegram que permite registrar y consultar movimientos financieros simplemente escribiendo mensajes, como si estuvieras hablando.
+
+Por ejemplo:
+- “gasté 6000 en transporte”
+- “cobré 1000 dólares del trabajo”
+- “¿cuánto gasté hoy?”
+
+El sistema interpreta el mensaje, procesa los datos automáticamente y los guarda en Google Sheets.
+
+---
+
+## ⚙️ Cómo funciona
+
+1. El usuario envía un mensaje por Telegram  
+2. Un AI Agent interpreta la intención (registro / consulta / chat)  
+3. Un nodo en JavaScript procesa y estructura los datos  
+4. Se decide el flujo con un Switch (registrar / consultar)  
+5. Los datos se guardan o se consultan desde Google Sheets  
+6. El bot responde automáticamente al usuario  
+
+---
+
+## 🧠 Decisiones técnicas
+
+- Separación entre interpretación (IA) y lógica de negocio (JavaScript)
+- Uso de detección de acciones (`REGISTRAR`, `CONSULTA`) para controlar el flujo
+- Parsing de JSON desde la respuesta del modelo
+- Manejo de errores en la interpretación de datos
+- Integración con API externa para obtener tipo de cambio en tiempo real
+- Soporte para múltiples monedas (ARS / USD) con conversión automática
+- Normalización de datos antes de guardarlos
 
 ---
 
@@ -53,17 +68,39 @@ Este proyecto consiste en un bot de Telegram que permite registrar gastos e ingr
 
 ---
 
-## 📦 Instalación
+## 🚀 Aplicaciones
 
-1. Importar el archivo JSON en n8n
-2. Configurar credenciales:
-   - Telegram Bot
-   - OpenAI API
-   - Google Sheets
-3. Ejecutar el workflow
+Este tipo de automatización puede adaptarse fácilmente para:
+
+- control de finanzas personales
+- registro de ventas en negocios
+- seguimiento de ingresos y egresos
+- automatización de reportes simples
+- asistentes internos para pequeñas empresas
 
 ---
 
-## 📌 Notas
+## 🔧 Tecnologías utilizadas
 
-Este proyecto fue desarrollado como parte del curso de Workflow Automation (XAcademy), pero extendido para manejar casos reales como múltiples monedas y diferentes tipos de transacciones.
+- n8n
+- OpenAI / AI Agent
+- Telegram Bot API
+- Google Sheets
+- JavaScript
+
+---
+
+## 📦 Cómo usarlo
+
+1. Importar el archivo JSON en n8n  
+2. Configurar credenciales:
+   - Telegram Bot  
+   - OpenAI API  
+   - Google Sheets  
+3. Ejecutar el workflow  
+
+---
+
+## 📌 Nota
+
+Este proyecto fue desarrollado como práctica de automatización, pero pensado con un enfoque aplicado a casos reales, como control financiero y automatización de procesos.
