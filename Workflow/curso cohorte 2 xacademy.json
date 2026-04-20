@@ -1,0 +1,668 @@
+{
+  "name": "curso cohorte 2 xacademy",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1296,
+        240
+      ],
+      "id": "f1da105c-75cc-4593-a3ce-d441ccbfb9a7",
+      "name": "Telegram Trigger",
+      "webhookId": "324db8a0-477b-424a-99d4-ad5f8e20ec37",
+      "credentials": {
+        "telegramApi": {
+          "id": "BcWNydQmCHXQg0MO",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.text }}",
+        "options": {
+          "systemMessage": "={{ $json.system_prompt }}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        -720,
+        240
+      ],
+      "id": "7a4dbaad-c9cb-4fcd-aaab-6cae68f3bbb0",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        -800,
+        512
+      ],
+      "id": "42290888-87b2-4d2e-8758-db4f1383a943",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "EUkW64LQMXLVhOL4",
+          "name": "n8n free OpenAI API credits"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $json.rawMessage.text }}",
+        "contextWindowLength": 10
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        -640,
+        512
+      ],
+      "id": "f9b55e38-3350-4cc6-b959-2e30aaf0cd95",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// EXTRAE contexto del mensaje entrante de Telegram\n// ============================================================\nconst msg = $input.first().json.message;\n\nconst chatId     = msg.chat.id;\nconst userId     = msg.from.id;\nconst firstName  = msg.from.first_name || 'amigo';\nconst text       = msg.text || msg.caption || '';\nconst hasPhoto   = !!(msg.photo && msg.photo.length > 0);\nconst hasVoice   = !!msg.voice;\nconst hasMedia   = hasPhoto || hasVoice;\n\n// Fecha y hora argentina\nconst ahora = new Date();\nconst fechaAR = ahora.toLocaleDateString('es-AR');\nconst horaAR  = ahora.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });\nconst diaSemana = ahora.toLocaleDateString('es-AR', { weekday: 'long' });\n\nreturn [{ json: {\n  chatId, userId, firstName, text, hasMedia, hasPhoto, hasVoice,\n  fechaAR, horaAR, diaSemana,\n  rawMessage: msg\n}}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1088,
+        240
+      ],
+      "id": "97ed59ae-39ef-4f16-a641-00ac80b654a9",
+      "name": "extraer datos"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// PARSEA la respuesta del AI Agent\n// Detecta si hay ACCION: REGISTRAR, ACCION: CONSULTA o solo chat\n// ============================================================\nconst rawOutput = $input.first().json.output || '';\n\n// --- Detectar REGISTRAR ---\nconst accionRegistrar =\n  rawOutput.includes('ACCION: REGISTRAR') ||\n  rawOutput.includes('Registro') ||\n  rawOutput.includes('\"destino\"');\n\nconst textoUsuario = (($('Prompt').first().json.text) || '').toLowerCase().trim();\n\nconst accionConsulta =\n  /ACCION:\\s*CONSULTA/i.test(rawOutput) ||\n  /\"filtro_tipo\"\\s*:/i.test(rawOutput) ||\n  textoUsuario.includes('cuanto gaste') ||\n  textoUsuario.includes('qué gasté') ||\n  textoUsuario.includes('que gaste') ||\n  textoUsuario.includes('gaste hoy') ||\n  textoUsuario.includes('gaste este mes') ||\n  textoUsuario.includes('gaste esta semana') ||\n  textoUsuario.includes('balance') ||\n  textoUsuario.includes('resumen') ||\n  textoUsuario.includes('mis ingresos') ||\n  textoUsuario.includes('cuanto ingrese') ||\n  textoUsuario.includes('cuanto gane') ||\n  textoUsuario.includes('ver ingresos');\n\nlet jsonData = null;\nlet mensajeBot = rawOutput;\n\nif (accionRegistrar || accionConsulta) {\n  const jsonMatch = rawOutput.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    try {\n      jsonData = JSON.parse(jsonMatch[0]);\n\n      // FIX: si Gemini manda categoria=Ingresos, forzar filtro_tipo ingresos\n      if (jsonData.filtro_tipo === 'categoria') {\n        const cat = (jsonData.filtro_categoria || '').toLowerCase().trim();\n        if (cat === 'ingresos' || cat === 'ingreso') {\n          jsonData.filtro_tipo = 'ingresos';\n          jsonData.filtro_categoria = '';\n        }\n      }\n\n    } catch(e) {\n      jsonData = null;\n    }\n  }\n  // El mensaje para el usuario es todo lo que viene DESPUÉS del JSON\n  const afterJson = rawOutput.split(/\\}[^\\{]*$/);\n  mensajeBot = afterJson[afterJson.length - 1]?.trim() || '';\n  \n  // Si el mensaje quedó vacío, tomamos lo anterior al JSON\n  if (!mensajeBot) {\n    const beforeJson = rawOutput.split('ACCION:')[0]?.trim();\n    mensajeBot = beforeJson || '✅ Entendido!';\n  }\n}\n\n// Limpiar el mensaje (quitar el bloque técnico)\nmensajeBot = mensajeBot\n  .replace(/ACCION: REGISTRAR/g, '')\n  .replace(/ACCION: CONSULTA/g, '')\n  .replace(/\\{[\\s\\S]*?\\}/g, '')\n  .trim();\n\nif (!mensajeBot) mensajeBot = accionRegistrar ? '✅ Movimiento anotado!' : '🔍 Buscando los datos...';\n\n// Recuperar contexto del nodo anterior en la cadena\nconst ctxNode = $('Prompt').first().json;\n\nreturn [{ json: {\n  chatId:    ctxNode.chatId,\n  firstName: ctxNode.firstName,\n  fechaAR:   ctxNode.fechaAR,\n  accion: accionRegistrar ? 'REGISTRAR' : accionConsulta ? 'CONSULTA' : 'CHAT',\n  jsonData,\n  mensajeBot,\n  rawOutput\n}}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -416,
+        240
+      ],
+      "id": "3edde7b3-47db-4829-ad8e-a15aa06b79d5",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.accion }}",
+                    "rightValue": "CHAT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "a3ad8a8b-4db5-4635-bcd7-18b1f7e0b9a2"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "52f2e893-01f4-481e-99f3-7234ac932551",
+                    "leftValue": "={{ $json.accion }}",
+                    "rightValue": "REGISTRAR",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "994e4b48-5c9e-46e7-a49c-c446c602b642",
+                    "leftValue": "={{ $json.accion }}",
+                    "rightValue": "CONSULTA",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -240,
+        224
+      ],
+      "id": "1c3d5e4f-a9ab-4698-bb17-371b8eff7582",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// CONSTRUYE el prompt del agente con contexto completo\n// ============================================================\nconst ctx = $input.first().json;\n\nconst categoriasPermitidas = [\n  'Ingresos', 'Costos fijos', 'Alimentacion', 'Mascotas',\n  'Productos Hogar', 'Salidas y Entretenimiento', 'Delivery',\n  'Gastos Extraordinarios', 'Tarjetas', 'Transporte', 'Actividades', 'Salud' , 'cohorte2' \n];\n\nconst systemPrompt = `Sos cohort2bot, el asistente de finanzas personales de ${ctx.firstName}.\nHoy es ${ctx.diaSemana} ${ctx.fechaAR} y son las ${ctx.horaAR}.\n\n===================================\nTU PERSONALIDAD:\n- Amigable, informal y sin emojis\n- Tratas de \"vos\" siempre\n- Sos proactivo: despues de registrar algo, preguntas si hubo algo mas\n- Recordas lo que te dijeron en la conversacion (tenes historial)\n- Cuando saludas por primera vez en el dia, preguntas en que gasto hoy\n\n===================================\nTU ROL PRINCIPAL:\nAnalizas cada mensaje y decides que hacer:\n\n1. SALUDO/CHARLA -> Respondes de forma amigable y redirigis a finanzas\n2. REGISTRO DE GASTO/INGRESO -> Extraes los datos y devolvs JSON para guardar\n3. CONSULTA (cuanto gaste, balance, etc.) -> Respondes con los datos disponibles\n4. FOTO O AUDIO -> Pedis que describan el gasto con texto por ahora\n\n===================================\nCUANDO HAY QUE REGISTRAR UN MOVIMIENTO:\nDevolvs SIEMPRE este JSON exacto (y nada mas antes del JSON):\n\nACCION: REGISTRAR\n{\n  \"destino\": \"Registro\",\n  \"monto\": 0.0,\n  \"moneda\": \"ARS\",\n  \"concepto\": \"descripcion\",\n  \"categoria\": \"una de las permitidas\",\n  \"tipo\": \"Gasto o Ingreso\",\n  \"cuotas_totales\": 1,\n  \"tarjeta\": \"No especificada\",\n  \"ticker\": \"N/A\",\n  \"cantidad\": 1,\n  \"fecha_inicio\": \"${ctx.fechaAR}\"\n}\n\nCATEGORIAS PERMITIDAS: ${categoriasPermitidas.join(', ')}\n\nDespues del JSON agregas un mensaje simpatico confirmando, por ejemplo:\n\"Listo! Anote 5000 pesos en comida, gastaste algo mas hoy?\"\n\n===================================\nCUANDO PREGUNTAN POR CONSULTAS:\nACCION: CONSULTA\n{\"filtro_tipo\": \"VALOR\", \"filtro_categoria\": \"nombre o vacio\"}\n\nReglas de deteccion (usa exactamente estos valores):\n- gaste este mes / del mes = filtro_tipo: mes\n- gaste esta semana / ultimos dias = filtro_tipo: semana\n- gaste hoy = filtro_tipo: hoy\n- mis ingresos / cuanto ingrese / cuanto gane / ver ingresos = filtro_tipo: ingresos\n- balance / resumen / totales / cuanto tengo = filtro_tipo: total\n- gaste en CATEGORIA = filtro_tipo: categoria, filtro_categoria: el nombre\n\nY luego un mensaje corto diciendo que vas a buscar los datos.\n\n===================================\nNUNCA:\n- Inventes montos o datos que el usuario no dijo\n- Uses categorias fuera de la lista\n- Rompas el formato JSON si hay que registrar\n`;\n\nconst promptAgente = `Mensaje de ${ctx.firstName}: \"${ctx.text}\"\n\nFecha actual: ${ctx.fechaAR} | Hora: ${ctx.horaAR}`;\n\nreturn [{ json: {\n  ...ctx,\n  system_prompt: systemPrompt,\n  prompt_agente: promptAgente\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -912,
+        240
+      ],
+      "id": "39a3139b-0b53-42cd-9056-1a20183144dc",
+      "name": "Prompt"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ $json.rawOutput }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "b0105c01-7be9-450f-ab25-b706b19c65ac",
+      "name": "Send a text message",
+      "webhookId": "be034f98-4f66-4d2f-bdbe-0b661dfc8217",
+      "credentials": {
+        "telegramApi": {
+          "id": "BcWNydQmCHXQg0MO",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// FIN - Normalizar Gasto (con conversión USD → ARS)\n// ============================================================\nconst item = $input.first().json;\nconst d = item.jsonData || {};\n\nfunction safeNumber(v, def = 0) { const n = Number(v); return Number.isFinite(n) ? n : def; }\nfunction safeString(v, def = '') { return (v === null || v === undefined) ? def : String(v); }\n\nconst allowed = [\n  'Ingresos','Costos fijos','Alimentacion','Mascotas',\n  'Productos Hogar','Salidas y Entretenimiento','Delivery',\n  'Gastos Extraordinarios','Tarjetas','Transporte',\n  'Actividades','Salud'\n];\n\n// Normalizar destino\nconst destinoRaw = safeString(d.destino).trim().toLowerCase();\nlet destino = 'Registro';\nif (destinoRaw === 'cuotas') destino = 'Cuotas';\nif (destinoRaw === 'inversiones' || destinoRaw === 'inversion') destino = 'Inversiones';\n\n// Normalizar tipo\nconst tipoRaw = safeString(d.tipo).trim().toLowerCase();\nconst tipo = (tipoRaw === 'ingreso' || tipoRaw === 'ingresos') ? 'Ingreso' : 'Gasto';\n\n// Normalizar moneda\nconst monedaRaw = safeString(d.moneda).trim().toUpperCase();\nconst moneda = ['ARS','USD'].includes(monedaRaw) ? monedaRaw : 'ARS';\n\n// Normalizar categoría\nlet categoria = safeString(d.categoria, 'Gastos Extraordinarios').trim();\nif (!allowed.includes(categoria)) categoria = 'Gastos Extraordinarios';\nif (tipo === 'Ingreso') categoria = 'Ingresos';\n\nconst montoOriginal = safeNumber(d.monto, 0);\n\n// ── Obtener tipo de cambio en tiempo real ─────────────────────\nlet tipoCambio = 0;\ntry {\n  const res = await this.helpers.httpRequest({\n    method: 'GET',\n    url: 'https://dolarapi.com/v1/dolares/oficial'\n  });\n  tipoCambio = Number(res.venta) || 0;\n} catch(e) {\n  tipoCambio = 0;\n}\n\n// ── Calcular Monto ARS ────────────────────────────────────────\nlet montoArs = montoOriginal;\nif (moneda === 'USD' && tipoCambio > 0) {\n  montoArs = Math.round(montoOriginal * tipoCambio);\n}\n\n// ── Mensaje de confirmación ───────────────────────────────────\nconst firstName = item.firstName || 'vos';\nlet mensajeBot;\nif (moneda === 'USD' && tipoCambio > 0) {\n  mensajeBot = `✅ Listo! Anoté *${safeString(d.concepto)}* por *$${montoOriginal.toLocaleString('es-AR')} USD* (= *$${montoArs.toLocaleString('es-AR')} ARS* al TC $${tipoCambio}) en *${categoria}* 💵\\n\\n¿Gastaste algo más, ${firstName}? 😊`;\n} else {\n  mensajeBot = `✅ Listo! Anoté *${safeString(d.concepto)}* por *$${montoOriginal.toLocaleString('es-AR')} ARS* en *${categoria}* 💸\\n\\n¿Gastaste algo más, ${firstName}? 😊`;\n}\n\nreturn [{ json: {\n  chatId:         item.chatId,\n  firstName,\n  fechaAR:        item.fechaAR,\n  mensajeBot,\n  accion:         item.accion,\n  destino,\n  monto:          montoOriginal,\n  moneda,\n  montoArs,\n  concepto:       safeString(d.concepto, 'N/A').trim() || 'N/A',\n  categoria,\n  tipo,\n  cuotas_totales: Math.max(1, Math.floor(safeNumber(d.cuotas_totales, 1))),\n  tarjeta:        safeString(d.tarjeta, 'No especificada').trim() || 'No especificada',\n  ticker:         safeString(d.ticker, 'N/A').trim() || 'N/A',\n  cantidad:       Math.max(1, safeNumber(d.cantidad, 1)),\n  fecha_inicio:   safeString(d.fecha_inicio, item.fechaAR).trim() || item.fechaAR,\n  tipoCambio\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        176
+      ],
+      "id": "8634b17f-445f-499a-8549-1f73f8348678",
+      "name": "NORMALIZAR GASTO"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1v231pQ9elw0HMca3HGNNjMDznTvDhKzi7oEXExi70Ys",
+          "mode": "list",
+          "cachedResultName": "Finanzas BOT",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1v231pQ9elw0HMca3HGNNjMDznTvDhKzi7oEXExi70Ys/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Gastos",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1v231pQ9elw0HMca3HGNNjMDznTvDhKzi7oEXExi70Ys/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Moneda": "={{ $json.moneda }}",
+            "Concepto": "={{ $json.concepto }}",
+            "Categoria": "={{ $json.categoria }}",
+            "Tipo": "={{ $json.tipo }}",
+            "Tarjeta": "={{ $json.tarjeta }}",
+            "cuotas_totales": "={{ $json.cuotas_totales }}",
+            "cantidad": "={{ $json.cantidad }}",
+            "Fecha": "={{ $json.fecha_inicio }}",
+            "Monto Original": "={{ $json.monto }}",
+            "Monto ARS": "={{ $json.montoArs }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Fecha",
+              "displayName": "Fecha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Tipo",
+              "displayName": "Tipo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Categoria",
+              "displayName": "Categoria",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Concepto",
+              "displayName": "Concepto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Monto Original",
+              "displayName": "Monto Original",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Moneda",
+              "displayName": "Moneda",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Tarjeta",
+              "displayName": "Tarjeta",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "cuotas_totales",
+              "displayName": "cuotas_totales",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "cantidad",
+              "displayName": "cantidad",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Monto ARS",
+              "displayName": "Monto ARS",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        208,
+        176
+      ],
+      "id": "6b424a4b-954b-4cab-85d3-527a7a9f86e3",
+      "name": "Append row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "8mKGG4xBrSIBFtiS",
+          "name": "Google Sheets OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('NORMALIZAR GASTO').item.json.chatId }}",
+        "text": "={{ $('NORMALIZAR GASTO').item.json.mensajeBot }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        432,
+        176
+      ],
+      "id": "92fac9b2-373b-458e-9db9-da648eed48e9",
+      "name": "Send a text message1",
+      "webhookId": "be034f98-4f66-4d2f-bdbe-0b661dfc8217",
+      "credentials": {
+        "telegramApi": {
+          "id": "BcWNydQmCHXQg0MO",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1v231pQ9elw0HMca3HGNNjMDznTvDhKzi7oEXExi70Ys",
+          "mode": "list",
+          "cachedResultName": "Finanzas BOT",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1v231pQ9elw0HMca3HGNNjMDznTvDhKzi7oEXExi70Ys/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Gastos",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1v231pQ9elw0HMca3HGNNjMDznTvDhKzi7oEXExi70Ys/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        208,
+        336
+      ],
+      "id": "275ea98b-ab00-48a5-8140-3ac421c8839b",
+      "name": "Get row(s) in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "8mKGG4xBrSIBFtiS",
+          "name": "Google Sheets OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all();\nconst meta = $('CONSULTA').first().json;\n\nconst filtroTipo = meta.filtro_tipo || 'total';\nconst filtroCat  = meta.filtro_categoria || '';\nconst firstName  = meta.firstName || 'vos';\nconst chatId     = meta.chatId;\n\nfunction parseDate(val) {\n  if (!val) return null;\n  const s = String(val).trim();\n  if (/^\\d{1,2}\\/\\d{1,2}\\/\\d{4}$/.test(s)) {\n    const [d, m, y] = s.split('/');\n    return new Date(parseInt(y), parseInt(m)-1, parseInt(d));\n  }\n  const d = new Date(s);\n  return isNaN(d.getTime()) ? null : d;\n}\n\nconst hoy = new Date();\nconst inicioMes    = new Date(hoy.getFullYear(), hoy.getMonth(), 1);\nconst inicioSemana = new Date(hoy); inicioSemana.setDate(hoy.getDate() - 6); inicioSemana.setHours(0,0,0,0);\nconst inicioDia    = new Date(hoy); inicioDia.setHours(0,0,0,0);\n\nfunction enRango(row) {\n  const fecha = parseDate(row.json['Fecha'] || row.json['fecha']);\n  if (!fecha) return filtroTipo === 'total';\n  if (filtroTipo === 'mes')    return fecha >= inicioMes;\n  if (filtroTipo === 'semana') return fecha >= inicioSemana;\n  if (filtroTipo === 'hoy')    return fecha >= inicioDia;\n  return true;\n}\n\nfunction coincideCategoria(row) {\n  if (filtroTipo !== 'categoria' || !filtroCat) return true;\n  const cat = String(row.json.Categoria || '').toLowerCase().trim();\n  return cat.includes(filtroCat.toLowerCase().trim());\n}\n\n// ── Acumuladores ──────────────────────────────────────────────\nlet gastosARS      = 0;\nlet gastosUSD      = 0;\nlet gastosUSDenARS = 0;\nlet ingresos       = 0;\nconst porCategoria = {};\n\nfor (const row of rows) {\n  if (!enRango(row) || !coincideCategoria(row)) continue;\n  const montoOriginal = Number(row.json['Monto Original'] || 0);\n  const montoArs      = Number(row.json['Monto Ars'] || 0);\n  const moneda        = String(row.json['Moneda'] || 'ARS').trim().toUpperCase();\n  const tipo          = String(row.json['Tipo'] || '').trim();\n  const cat           = String(row.json['Categoria'] || 'Sin categoria').trim();\n\n  // FIX: usa montoOriginal como fallback siempre, no solo para ARS\n  const montoParaCalculo = montoArs > 0 ? montoArs : montoOriginal;\n\n  if (tipo === 'Gasto') {\n    if (moneda === 'USD') {\n      gastosUSD      += montoOriginal;\n      gastosUSDenARS += montoArs > 0 ? montoArs : 0;\n    } else {\n      gastosARS += montoOriginal;\n    }\n    porCategoria[cat] = (porCategoria[cat] || 0) + montoParaCalculo;\n  } else if (tipo === 'Ingreso') {\n    ingresos += montoParaCalculo;\n  }\n}\n\nconst totalGastosARS = gastosARS + gastosUSDenARS;\n\nconst topCats = Object.entries(porCategoria)\n  .sort((a,b) => b[1]-a[1]).slice(0,5)\n  .map(([cat, monto]) => `  • ${cat}: $${Math.round(monto).toLocaleString('es-AR')} ARS`);\n\n// ── CASO ESPECIAL: INGRESOS ───────────────────────────────────\nif (filtroTipo === 'ingresos') {\n  let ingresosTotales = 0;\n  const porCatIngresos = {};\n\n  for (const row of rows) {\n    if (!enRango(row)) continue;\n    const tipo = String(row.json['Tipo'] || '').trim();\n    if (tipo !== 'Ingreso') continue;\n    const montoOriginal = Number(row.json['Monto Original'] || 0);\n    const montoArs      = Number(row.json['Monto Ars'] || 0);\n    const cat           = String(row.json['Categoria'] || 'Ingresos').trim();\n\n    // FIX: usa montoOriginal como fallback siempre\n    const monto = montoArs > 0 ? montoArs : montoOriginal;\n\n    ingresosTotales += monto;\n    porCatIngresos[cat] = (porCatIngresos[cat] || 0) + monto;\n  }\n\n  const topIngresos = Object.entries(porCatIngresos)\n    .sort((a,b) => b[1]-a[1])\n    .map(([cat, monto]) => `  • ${cat}: $${Math.round(monto).toLocaleString('es-AR')} ARS`);\n\n  let respIngresos = `📈 *Tus ingresos*\\n\\n`;\n  respIngresos += `💰 *Total ingresado:* $${Math.round(ingresosTotales).toLocaleString('es-AR')} ARS\\n`;\n  if (topIngresos.length > 0) {\n    respIngresos += `\\n📋 *Por categoria:*\\n${topIngresos.join('\\n')}\\n`;\n  }\n  respIngresos += `\\n¿Queres saber algo mas, ${firstName}? 😊`;\n\n  return [{ json: { chatId, mensajeBot: respIngresos } }];\n}\n\n// ── Respuesta general ─────────────────────────────────────────\nconst labels = {\n  'total':     '📊 Tu resumen general',\n  'mes':       '📅 Lo que gastaste este mes',\n  'semana':    '🗓 Lo que gastaste esta semana',\n  'hoy':       '☀️ Lo que gastaste hoy',\n  'categoria': `🏷 Tus gastos en *${filtroCat}*`\n};\nconst titulo = labels[filtroTipo] || '📊 Resumen';\n\nlet respuestaFinal = `${titulo}\\n\\n`;\nif (gastosARS > 0) {\n  respuestaFinal += `💵 *Gastos en ARS:* $${Math.round(gastosARS).toLocaleString('es-AR')}\\n`;\n}\nif (gastosUSD > 0) {\n  respuestaFinal += `💲 *Gastos en USD:* $${Math.round(gastosUSD).toLocaleString('es-AR')} USD`;\n  if (gastosUSDenARS > 0) {\n    respuestaFinal += ` (= $${Math.round(gastosUSDenARS).toLocaleString('es-AR')} ARS)`;\n  }\n  respuestaFinal += `\\n`;\n}\nrespuestaFinal += `💸 *Total en ARS:* $${Math.round(totalGastosARS).toLocaleString('es-AR')}\\n`;\nif (filtroTipo === 'total') {\n  respuestaFinal += `📈 *Ingresos:* $${Math.round(ingresos).toLocaleString('es-AR')} ARS\\n`;\n  respuestaFinal += `⚖️ *Balance:* $${Math.round(ingresos - totalGastosARS).toLocaleString('es-AR')} ARS\\n`;\n}\nif (topCats.length > 0) {\n  respuestaFinal += `\\n📋 *Por categoria:*\\n${topCats.join('\\n')}\\n`;\n}\nrespuestaFinal += `\\n¿Queres saber algo mas, ${firstName}? 😊`;\n\nreturn [{ json: { chatId, mensajeBot: respuestaFinal } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        336
+      ],
+      "id": "ff1eed50-200a-43dd-97af-4c55f11bbaa5",
+      "name": "Code in JavaScript2"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// PREPARAR CONSULTA: leer planilla y calcular según filtro\n// ============================================================\nconst item = $input.first().json;\nconst filtro = item.jsonData?.filtro_tipo || 'total';\nconst filtroCat = item.jsonData?.filtro_categoria || '';\n\nreturn [{ json: {\n  ...item,\n  filtro_tipo: filtro,\n  filtro_categoria: filtroCat\n}}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        336
+      ],
+      "id": "3702b940-a440-4c4e-9d0a-8001a1a30c7d",
+      "name": "CONSULTA"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ $json.mensajeBot }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        640,
+        336
+      ],
+      "id": "ec829c1c-ae5b-4d11-a8d7-d4f9838cb406",
+      "name": "Send a text message2",
+      "webhookId": "be034f98-4f66-4d2f-bdbe-0b661dfc8217",
+      "credentials": {
+        "telegramApi": {
+          "id": "BcWNydQmCHXQg0MO",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "extraer datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "extraer datos": {
+      "main": [
+        [
+          {
+            "node": "Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prompt": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "NORMALIZAR GASTO",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "CONSULTA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NORMALIZAR GASTO": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append row in sheet": {
+      "main": [
+        [
+          {
+            "node": "Send a text message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONSULTA": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript2": {
+      "main": [
+        [
+          {
+            "node": "Send a text message2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "af295f0e-e70f-4605-b540-cf3581cfd59f",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "e58e407bb165462bad44c6996a810380c5af3feaf8214b95b460167fe98a484a"
+  },
+  "id": "BTxjJA7mLcmVPEJL",
+  "tags": []
+}
