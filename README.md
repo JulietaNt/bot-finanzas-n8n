@@ -37,9 +37,19 @@ Este proyecto consiste en un bot de Telegram que permite registrar gastos e ingr
 
 ---
 
-## 📸 Ejemplos
+## 📸 Ejemplo de funcionamiento
 
-(agregás imágenes)
+### 🔁 Flujo en n8n
+![Flujo](screenshots/flujo.png)
+
+### 💬 Interacción con el bot (Telegram)
+![Telegram](screenshots/telegram.png)
+
+### 📊 Datos almacenados en Google Sheets
+![Sheets](screenshots/sheets.png)
+
+### 🧠 Lógica de procesamiento (código)
+![Código](screenshots/codigo.png)
 
 ---
 
